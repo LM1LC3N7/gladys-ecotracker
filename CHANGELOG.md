@@ -26,5 +26,9 @@ the notes of the version's GitHub Release.
 - Status notes: no serial number, another reader at the address, an answer
   without serial after a reader with one, no power (PIN-locked meter),
   unusable counter, index held back.
+- Unit check of the counters (index rise against the power, T1 + T2 against
+  the index) and, for a reader without serial number, the shape of its
+  answer checked after an outage; a fixed address is required for such a
+  reader.
 - Test button that never reads faster than the 10-second pace; pace and
   429/5xx pauses kept across restarts, pauses on a monotonic clock.

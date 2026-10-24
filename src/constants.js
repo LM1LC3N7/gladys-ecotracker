@@ -81,3 +81,13 @@ export const POWER_MAX = 100_000;
 export const INDEX_MAX = 100_000_000;
 /** A signal outside [-150, 0] dBm is a glitch. */
 export const RSSI_MIN = -150;
+
+// --- Is the counter in Wh? (review r1, point 2) -----------------------------------------
+/** The rise of the index is compared to the energy the power gives over this much (kWh). */
+export const UNIT_CHECK_KWH = 1;
+/** A gap between two reads longer than this starts the comparison again. */
+export const UNIT_CHECK_GAP = 30 * SECOND;
+/** A ratio index / power outside [1/UNIT_RATIO, UNIT_RATIO]: the unit is told as doubtful. */
+export const UNIT_RATIO = 20;
+/** T1 + T2 may differ from the index by this share (and 0.1 kWh) before a note. */
+export const TARIFF_TOLERANCE = 0.01;

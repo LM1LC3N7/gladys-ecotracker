@@ -35,8 +35,14 @@ qu'une partie) :
 - L'**injection** et les **tarifs** n'entrent jamais dans le suivi
   énergétique (l'injection serait facturée comme une consommation, les
   tarifs comptés deux fois) : simples capteurs.
-- Le lecteur donne ses compteurs en Wh (description publiée de l'API et
-  relevé réel) : ils sont convertis en kWh.
+- `energyCounterIn` et `energyCounterOut` sont en Wh selon la description
+  publiée de l'API et un relevé réel : ils sont convertis en kWh. Pour T1 et
+  T2, la description ne donne pas d'unité : Wh est une hypothèse (son exemple
+  fait In = T1 + T2). Le README de la bibliothèque du fabricant dit kWh :
+  l'intégration vérifie donc l'unité. Quand l'index ne suit pas la puissance
+  (sa hausse est hors de 1/20 à 20 fois l'énergie que donne la puissance,
+  sur au moins 1 kWh), ou quand T1 + T2 ne font pas l'index, l'état le dit
+  (« unité ? ») ; l'index est quand même envoyé.
 - Les puissances sont envoyées toutes les 10 secondes, seulement quand elles
   changent (et toutes les 10 minutes sinon). Elles ne sont pas envoyées :
   - quand le lecteur indique (champ `agePower`) que sa puissance a plus
@@ -60,8 +66,9 @@ qu'une partie) :
 1. Installez l'EcoTracker sur votre compteur et connectez-le à votre Wi-Fi
    avec l'application everHome, comme l'explique le fabricant. Si
    l'application le propose, activez l'API locale du lecteur.
-2. Trouvez son adresse IP (dans votre box ou l'application) et donnez-lui de
-   préférence une adresse fixe dans votre box.
+2. Trouvez son adresse IP (dans votre box ou l'application) et donnez-lui
+   une adresse fixe dans votre box (réservation DHCP). C'est nécessaire si le
+   lecteur ne donne pas de numéro de série (voir plus bas).
 3. Dans Gladys, ouvrez l'intégration, saisissez cette adresse, enregistrez.
 4. Dans l'onglet **Découverte**, créez l'appareil.
 
@@ -93,18 +100,27 @@ continuent en attendant.
 
 - Le lecteur réel connu ne donne pas de numéro de série dans sa réponse
   locale : l'appareil s'appelle alors **EcoTracker** (`ecotracker:reader`),
-  et un autre lecteur qui répondrait à la même adresse ne peut pas en être
-  distingué. L'état le rappelle ; la garde de l'index retient de toute façon
-  le saut ou la baisse qu'il produirait.
+  et un autre lecteur qui répondrait à la même adresse (un second EcoTracker
+  du foyer qui reprend son adresse) ne peut pas toujours en être distingué.
+  Une **adresse fixe est donc nécessaire**. Ce qui protège quand même :
+  - après une coupure (lecteur injoignable, redémarrage), une réponse dont
+    les champs diffèrent (phases, tarifs, `agePower`…) n'est pas utilisée :
+    rien n'est envoyé tant que les champs ne reviennent pas, ou jusqu'à deux
+    clics sur **Accepter l'index retenu** si c'est bien le même lecteur ;
+  - avec les mêmes champs, la garde de l'index retient une baisse, ou une
+    hausse plus grande que ce que le foyer a pu consommer depuis la dernière
+    valeur acceptée (50 kW × heures sans valeurs) ; **une hausse plus petite
+    est prise comme une consommation** (après 2 h de coupure, jusqu'à
+    100 kWh).
 - Si le lecteur donne un numéro de série (champ `serial`, lu par la
   bibliothèque du fabricant), l'appareil porte ce numéro et chaque réponse
   est vérifiée : un autre numéro à la même adresse a son propre appareil, ses
   valeurs ne vont jamais au précédent ; un numéro illisible n'est pas
   utilisé (état rouge, nouvel essai espacé).
-- Une réponse sans numéro après un lecteur qui en donnait un n'est pas
-  utilisée tant que l'appareil de ce lecteur existe : l'état le dit. Si vous
-  avez remplacé le lecteur par un modèle sans numéro, supprimez l'ancien
-  appareil dans Gladys : le nouveau lecteur aura son propre appareil.
+- Une réponse sans numéro n'est pas utilisée tant qu'un appareil d'un
+  lecteur avec numéro existe dans Gladys : l'état le dit. Si vous avez
+  remplacé le lecteur par un modèle sans numéro, supprimez l'ancien appareil
+  dans Gladys : le nouveau lecteur aura son propre appareil.
 - Passer d'un lecteur sans numéro à un lecteur avec numéro (par exemple
   après une mise à jour du lecteur) crée un nouvel appareil, sans
   l'historique de l'ancien.
@@ -113,7 +129,9 @@ continuent en attendant.
 
 - Un lecteur par intégration.
 - Un compteur illisible (texte, valeur négative, 0, hors bornes) n'est
-  jamais utilisé : l'état le dit.
+  jamais utilisé. L'état le dit pour le compteur de consommation
+  (`energyCounterIn`) ; les tarifs et l'injection illisibles sont simplement
+  ignorés.
 - Lecture seule : le lecteur ne reçoit aucune commande.
 
 ## Dépannage

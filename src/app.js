@@ -21,8 +21,12 @@
 // DHCP swap); a serial present but unreadable is a wrong answer, never
 // "another reader"; an answer without serial after a reader with one, while
 // that reader's device exists, is not used (a weaker identity is never a
-// downgrade). A reader that gives no serial at all cannot be told from
-// another one: the guard of the index holds any jump or drop.
+// downgrade), nor while any device of a reader with a serial exists. A
+// reader that gives no serial at all cannot always be told from another one:
+// after an outage, another shape of its answer is held (followShape); with the
+// same shape, the guard holds a drop or a rise larger than 50 kW x the hours
+// since the last accepted value, but takes a smaller rise. A fixed address is
+// needed (docs, status).
 //
 // Freshness: the answer has no time of its own. The age of the power
 // (`agePower`), when sent, and a fingerprint of the values (kept in /data,
@@ -52,7 +56,11 @@ import {
   RETRY_MIN,
   STATE_HEARTBEAT,
   STOP_WAIT,
+  TARIFF_TOLERANCE,
   TEST_ANSWER_WITHIN,
+  UNIT_CHECK_GAP,
+  UNIT_CHECK_KWH,
+  UNIT_RATIO,
 } from './constants.js';
 import {
   FEATURE,
@@ -67,7 +75,7 @@ import {
   validKeys,
 } from './devices.js';
 import { ReaderClient, ReaderError } from './ecotracker/client.js';
-import { DEVICE_KEY, NO_SERIAL_KEY, deviceKey, fingerprintOf } from './ecotracker/model.js';
+import { DEVICE_KEY, NO_SERIAL_KEY, SHAPE, deviceKey, fingerprintOf } from './ecotracker/model.js';
 import { IndexGuard } from './guard.js';
 import { T } from './i18n.js';
 import { createFileStore } from './store.js';
@@ -215,6 +223,30 @@ export class EcoTrackerApp {
     /** Monotonic time of the last read started. */
     this.lastReadAt =
       this.lastAttemptAt === undefined ? undefined : mono - (at - this.lastAttemptAt);
+    if (
+      this.lastAttemptAt !== undefined &&
+      kept.attemptExact !== true &&
+      at - this.lastAttemptAt < ATTEMPT_SAVE_EVERY + POLL_INTERVAL
+    ) {
+      // Not a clean stop: the time in /data may be up to a minute old and a
+      // read may have gone since (review r1, point 6): a whole interval.
+      this.lastReadAt = mono;
+    }
+    /** Whether /data holds the exact time of the last read (written at a clean stop). */
+    this.attemptExact = false;
+    /**
+     * The shape of the answers of a reader without serial (the fields it
+     * sends), kept in /data: `{ key, shape }` (review r1, point 3).
+     */
+    this.shape =
+      kept.shape &&
+      typeof kept.shape.key === 'string' &&
+      DEVICE_KEY.test(kept.shape.key) &&
+      typeof kept.shape.shape === 'string' &&
+      kept.shape.shape.length <= 400 &&
+      SHAPE.test(kept.shape.shape)
+        ? { key: kept.shape.key, shape: kept.shape.shape }
+        : undefined;
     /**
      * The freshness kept in /data: `{ key, hash, at }`, the hash of the last
      * values read and the wall time they last changed. After a restart, a
@@ -255,6 +287,76 @@ export class EcoTrackerApp {
     this.identityLost = false;
     /** Monotonic time the indexes were last published. */
     this.lastIndexAt = undefined;
+    /**
+     * The next answer follows an outage (a start, a failure): its shape is
+     * compared to the one kept (a reader without serial).
+     */
+    this.afterOutage = true;
+    /**
+     * A reader without serial answers with another shape after an outage:
+     * maybe another reader at the address. `{ from, to }`; nothing is
+     * published until the shape comes back or the user accepts it.
+     */
+    this.shapeChanged = undefined;
+    this.resetUnitCheck();
+    /** The counters do not follow the power (`{ ratio }`), or T1 + T2 is not the index. */
+    this.unitDoubt = undefined;
+    this.tariffDoubt = false;
+  }
+
+  /** The comparison of the index with the power starts again (review r1, point 2). */
+  resetUnitCheck(reading, mono) {
+    this.unitWindow =
+      reading && reading.power !== undefined && reading.imports.total !== undefined
+        ? { from: reading.imports.total, kwh: 0, at: mono, power: reading.power }
+        : undefined;
+  }
+
+  /**
+   * Is the counter in Wh? Over at least UNIT_CHECK_KWH drawn according to the
+   * power (the integral of max(power, 0) between reads, gaps over 30 s start
+   * again), the rise of the index must be within a factor of 20 of it. A
+   * reader in kWh read as Wh gives 1/1000. Only a note and a log line: the
+   * index is never stopped on this (a power in kW would be the wrong one).
+   * And T1 + T2 must be the index when the three are given.
+   */
+  checkUnits(reading, mono) {
+    const { t1, t2, total } = reading.imports;
+    if (t1 !== undefined && t2 !== undefined && total !== undefined) {
+      const doubt = Math.abs(t1 + t2 - total) > Math.max(0.1, total * TARIFF_TOLERANCE);
+      if (doubt && !this.tariffDoubt) {
+        this.logger.warn('ecotracker: the tariff counters do not add up to the index');
+      }
+      this.tariffDoubt = doubt;
+    }
+    const w = this.unitWindow;
+    if (
+      !w ||
+      reading.power === undefined ||
+      total === undefined ||
+      total < w.from ||
+      mono - w.at > UNIT_CHECK_GAP ||
+      mono < w.at
+    ) {
+      this.resetUnitCheck(reading, mono);
+      return;
+    }
+    const hours = (mono - w.at) / 3_600_000;
+    w.kwh += ((Math.max(0, w.power) + Math.max(0, reading.power)) / 2 / 1000) * hours;
+    w.at = mono;
+    w.power = reading.power;
+    if (w.kwh < UNIT_CHECK_KWH) {
+      return;
+    }
+    const ratio = (total - w.from) / w.kwh;
+    const doubt = ratio < 1 / UNIT_RATIO || ratio > UNIT_RATIO;
+    if (doubt && !this.unitDoubt) {
+      this.logger.warn(
+        `ecotracker: the consumption counter does not follow the power (ratio ${ratio.toPrecision(2)}): unit?`,
+      );
+    }
+    this.unitDoubt = doubt ? { ratio } : undefined;
+    this.resetUnitCheck(reading, mono);
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -338,8 +440,12 @@ export class EcoTrackerApp {
       return;
     }
     if (!changed || first) {
-      // Another address may be another reader: its device is published once
-      // its answer is read, never the old one with the new address.
+      // At the first start, the reader kept in /data is offered again with
+      // the address of the form (the SDK may update the `address` param of
+      // its device before any answer: cosmetic). When the address changes
+      // while running, another address may be another reader: its device is
+      // published once its answer is read, never the old one with the new
+      // address.
       await this.discover();
     }
     await this.updateStatus();
@@ -364,9 +470,13 @@ export class EcoTrackerApp {
     return Math.min(Math.max(0, this.pause.due - mono), PAUSE_MAX);
   }
 
-  /** The monotonic time from which the next read may start. */
-  dueAt() {
-    const mono = this.monotonic();
+  /**
+   * The monotonic time from which the next read may start, computed at the
+   * caller's instant `mono`: one clock read per decision (a second read of a
+   * real clock is always later, and `mono < dueAt()` would never let a read
+   * go).
+   */
+  dueAt(mono = this.monotonic()) {
     let due = this.lastReadAt === undefined ? mono : this.lastReadAt + POLL_INTERVAL;
     if (this.nextTryAt !== undefined) {
       due = Math.max(due, Math.min(this.nextTryAt, mono + RETRY_MAX));
@@ -383,7 +493,9 @@ export class EcoTrackerApp {
     if (!this.running || !this.session?.client) {
       return;
     }
-    const wait = Math.max(0, this.dueAt() - this.monotonic());
+    const mono = this.monotonic();
+    // Whole milliseconds, rounded up: a timer never fires before the read is due.
+    const wait = Math.max(0, Math.ceil(this.dueAt(mono) - mono));
     this.timer = this.timers.setTimeout(() => {
       this.timer = undefined;
       this.loopRun = this.loop();
@@ -421,7 +533,7 @@ export class EcoTrackerApp {
       return;
     }
     const mono = this.monotonic();
-    if (mono < this.dueAt()) {
+    if (mono < this.dueAt(mono)) {
       return;
     }
     /** Another address (or a stop) during an await: this read gives up, silently. */
@@ -469,10 +581,28 @@ export class EcoTrackerApp {
     if (reading.serial !== undefined) {
       return deviceKey(reading.serial);
     }
-    if (this.deviceKey?.startsWith('sn-') && this.createdDevice()) {
+    if (this.serialDevice()) {
       return undefined;
     }
     return NO_SERIAL_KEY;
+  }
+
+  /**
+   * A created device of a reader with a serial, from Gladys itself (not
+   * /data, which may be lost: review r1, point 5): the one of /data first.
+   */
+  serialDevice() {
+    const devices = (this.gladys.devices ?? []).filter((d) =>
+      /:ecotracker:sn-[a-z0-9][a-z0-9_-]{2,47}$/.test(String(d.external_id)),
+    );
+    const mine = this.deviceKey?.startsWith('sn-') ? this.createdDevice() : undefined;
+    return mine ?? devices[0];
+  }
+
+  /** The serial of that device, for the note (its param, checked). */
+  serialOfDevice(device) {
+    const raw = (device?.params ?? []).find((p) => p.name === 'serial')?.value;
+    return typeof raw === 'string' && SERIAL.test(raw) ? raw : this.serial;
   }
 
   async succeeded(reading, mono, gone) {
@@ -487,6 +617,7 @@ export class EcoTrackerApp {
         this.logger.warn('ecotracker: the answer has no serial number any more: not used');
       }
       this.identityLost = true;
+      this.lostSerial = this.serialOfDevice(this.serialDevice());
       this.outcome = { at: mono, kind: 'reading', reading, unused: true };
       await this.saveState();
       if (gone()) return;
@@ -510,8 +641,12 @@ export class EcoTrackerApp {
       // The reader answering has its device: the note about it ends.
       this.otherReader = undefined;
     }
+    this.followShape(reading, key);
     this.followFreshness(reading, key, mono);
     this.outcome = { at: mono, kind: 'reading', reading };
+    if (!this.shapeChanged) {
+      this.checkUnits(reading, mono);
+    }
     const keys = union(
       this.keys,
       capabilitiesOfDevice(this.createdDevice()),
@@ -536,6 +671,9 @@ export class EcoTrackerApp {
 
   async failed(err, mono, gone) {
     const code = err?.code ?? 'error';
+    // The next answer comes after an outage: its shape is checked.
+    this.afterOutage = true;
+    this.resetUnitCheck();
     const now = this.now();
     // The pause and the next try count from the failure, not from the start
     // of the read (a slow answer would shorten them).
@@ -605,6 +743,37 @@ export class EcoTrackerApp {
     }
   }
 
+  /**
+   * A reader without serial cannot be told from another one at the same
+   * address. Its shape (the fields it sends) is kept in /data; after an
+   * outage (a start, a failure), another shape is maybe another reader: its
+   * values are not published until the shape comes back or the user accepts
+   * it (the accept button). A shape changing between two reads in a row
+   * (a meter unlocked by its PIN) is taken.
+   */
+  followShape(reading, key) {
+    const afterOutage = this.afterOutage;
+    this.afterOutage = false;
+    if (key !== NO_SERIAL_KEY) {
+      this.shapeChanged = undefined;
+      return;
+    }
+    const kept = this.shape?.key === key ? this.shape.shape : undefined;
+    if (kept === undefined || reading.shape === kept) {
+      this.shapeChanged = undefined;
+      this.shape = { key, shape: reading.shape };
+      return;
+    }
+    if (afterOutage || this.shapeChanged) {
+      if (!this.shapeChanged) {
+        this.logger.warn('ecotracker: the answer has another shape after an outage: held');
+      }
+      this.shapeChanged = { from: kept, to: reading.shape };
+      return;
+    }
+    this.shape = { key, shape: reading.shape };
+  }
+
   isFrozen(mono) {
     return this.readingStamp !== undefined && mono - this.freshAt >= FROZEN_AFTER;
   }
@@ -653,18 +822,28 @@ export class EcoTrackerApp {
       return [false, T.unreachable(address, this.lastError, wait, notes)];
     }
     if (this.outcome?.kind === 'reading' && this.identityLost) {
-      return [true, T.ok(address, [T.notes.identityLost(this.serial), ...notes])];
+      return [true, T.ok(address, [T.notes.identityLost(this.lostSerial), ...notes])];
     }
     if (this.outcome?.kind === 'reading' && this.deviceKey) {
       const reading = this.outcome.reading;
       const mono = this.monotonic();
       const extra = [];
       if (this.otherReader !== undefined) extra.push(T.notes.otherReader(this.otherReader));
+      if (this.shapeChanged) extra.push(T.notes.shapeChanged);
       if (this.serial === undefined) extra.push(T.notes.noSerial);
+      const powerless =
+        reading.power === undefined &&
+        reading.powerAvg === undefined &&
+        reading.phases.every((p) => p === undefined);
       if (reading.power === undefined) extra.push(T.notes.noPower);
       if (EcoTrackerApp.isOldPower(reading)) extra.push(T.notes.oldPower(reading.agePower));
-      else if (this.isFrozen(mono)) extra.push(T.notes.frozen(mono - this.freshAt));
+      // Without any power, nothing live is sent anyway: "no power" says it all.
+      else if (powerless) {
+        // (no frozen note: a locked meter moves its index once a kWh)
+      } else if (this.isFrozen(mono)) extra.push(T.notes.frozen(mono - this.freshAt));
       else if (!this.freshKnown) extra.push(T.notes.notYetFresh);
+      if (this.unitDoubt) extra.push(T.notes.unitDoubt(this.unitDoubt.ratio));
+      if (this.tariffDoubt) extra.push(T.notes.tariffDoubt);
       // energyCounterIn sent but unusable, or gone after it was seen.
       if (
         reading.indexRefused ||
@@ -718,6 +897,9 @@ export class EcoTrackerApp {
    */
   async saveState({ all = false } = {}) {
     const now = this.now();
+    // The exact time of the last read only at a clean stop: a later save
+    // (a new start) writes the time of the minute again.
+    this.attemptExact = all && !this.busy;
     if (all) {
       this.savedAttemptAt = this.lastAttemptAt;
     }
@@ -750,6 +932,8 @@ export class EcoTrackerApp {
           }
         : null,
       lastAttemptAt: this.savedAttemptAt ?? null,
+      attemptExact: this.attemptExact && this.savedAttemptAt === this.lastAttemptAt,
+      shape: this.shape ?? null,
       fresh: this.savedFresh ?? null,
       indexes: Object.fromEntries(merged),
     };
@@ -808,19 +992,15 @@ export class EcoTrackerApp {
     }
     // A new device: no reference of its index yet (nor a state kept in /data
     // for a deleted device of the same id). Its values come at the next read.
+    // A new guard set BEFORE any await (review r1, point 4): a read in
+    // between never loads the state of the deleted device from /data, and
+    // saveState() replaces it there, in its one queue.
     const id = external.feature(FEATURE.CONSUMPTION_INDEX);
-    this.guards.delete(id);
+    this.guards.set(id, new IndexGuard(undefined, undefined, this.now(), GUARD_LIMITS));
     this.pendingAccept = undefined;
-    const kept = this.store.load();
-    const indexes = keptIndexes(kept.indexes);
-    delete indexes[id];
-    await this.store
-      .save({ ...kept, indexes: { ...indexes } })
-      .catch((err) =>
-        this.logger.warn(`Clearing the ecotracker index state failed (${err?.code ?? 'error'})`),
-      );
-    this.savedKey = undefined;
     this.lastIndexAt = undefined;
+    this.savedKey = undefined;
+    await this.saveState();
     // The reader now answering has its device: the note about it ends.
     this.otherReader = undefined;
     await this.updateStatus();
@@ -851,7 +1031,8 @@ export class EcoTrackerApp {
   /** The states of a reading: the live values every time, the indexes once a minute. */
   async publish(reading, mono, gone) {
     const created = this.createdDevice();
-    if (!created) {
+    if (!created || this.shapeChanged) {
+      // Maybe another reader: nothing is published (review r1, point 3).
       return;
     }
     const external = this.external();
@@ -913,7 +1094,12 @@ export class EcoTrackerApp {
    * (src/guard.js `margin`). A save of the form never accepts.
    */
   async acceptHeldIndex() {
-    const list = this.heldList();
+    // A changed shape first (a reader without serial after an outage): the
+    // same two clicks take it, nothing else (review r1, point 3).
+    const shape = this.shapeChanged
+      ? [{ kind: 'shape', from: this.shapeChanged.from, to: this.shapeChanged.to }]
+      : undefined;
+    const list = shape ?? this.heldList();
     const mono = this.monotonic();
     const now = this.now();
     const pending = this.pendingAccept;
@@ -929,9 +1115,26 @@ export class EcoTrackerApp {
         return T.accept.nothing;
       }
       this.pendingAccept = { at: mono, listedAt: now, list, session: this.session };
+      if (shape) {
+        return T.accept.confirmShape(ACCEPT_CONFIRM_WITHIN);
+      }
       // The most the meter may add between the clicks: maxKw over the window, plus the slack.
       const margin = (INDEX_MAX_KW * ACCEPT_CONFIRM_WITHIN) / 3_600_000 + INDEX_SLACK_KWH;
       return T.accept.confirm(list[0], ACCEPT_CONFIRM_WITHIN, margin);
+    }
+    if (pending.list[0]?.kind === 'shape') {
+      const entry = pending.list[0];
+      const now2 = this.shapeChanged;
+      if (now2 && now2.from === entry.from && now2.to === entry.to) {
+        this.shape = { key: NO_SERIAL_KEY, shape: entry.to };
+        this.shapeChanged = undefined;
+        this.lastIndexAt = undefined;
+        this.logger.info('ecotracker: the new shape of the answer accepted by the user');
+        await this.saveState();
+        await this.updateStatus();
+        return T.accept.shapeDone;
+      }
+      return now2 ? T.accept.changed : T.accept.nothing;
     }
     const accepted = [];
     const changed = [];
@@ -976,14 +1179,15 @@ export class EcoTrackerApp {
     if (this.pauseLeft() > 0) {
       return this.currentStatus()[1];
     }
-    if (this.busy || this.dueAt() > this.monotonic()) {
+    const mono = this.monotonic();
+    if (this.busy || this.dueAt(mono) > mono) {
       return this.describeOutcome();
     }
     let timer;
     const late = new Promise((resolve) => {
       timer = this.timers.setTimeout(() => resolve(T.test.slow), TEST_ANSWER_WITHIN);
     });
-    const since = this.monotonic();
+    const since = mono;
     try {
       return await Promise.race([this.tick().then(() => this.describeOutcome(since)), late]);
     } finally {
@@ -998,7 +1202,7 @@ export class EcoTrackerApp {
    */
   describeOutcome(since) {
     const mono = this.monotonic();
-    const next = Math.max(0, this.dueAt() - mono);
+    const next = Math.max(0, this.dueAt(mono) - mono);
     const outcome = this.outcome;
     if (!outcome) {
       return T.test.notYet(next);

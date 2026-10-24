@@ -76,11 +76,18 @@ export async function setup({
   const lines = [];
   const log = (...args) => lines.push(args.map(String).join(' '));
   const wall = { offset: 0 };
+  // A monotonic clock that moves at every call, as a real one does (review
+  // r1, point 1): two reads of it in one decision are never equal.
+  let lastMono = -Infinity;
+  const monotonic = () => {
+    lastMono = Math.max(lastMono + 0.001, clock.now + monotonicOffset);
+    return lastMono;
+  };
   const app = new EcoTrackerApp({
     gladys,
     logger: { lines, info: log, warn: log, error: log, debug: log },
     now: () => clock.now + wall.offset,
-    monotonic: () => clock.now + monotonicOffset,
+    monotonic,
     timers,
     store,
     clientFactory: (options) => new ReaderClient({ ...options, fetchImpl: reader.net.fetch }),
@@ -90,8 +97,10 @@ export async function setup({
     await advance(0);
     await app.idle();
   };
+  // A real clock moves between two calls: a read due at 10 s is due a few
+  // microseconds later. Each wait goes 1 ms further, so that it is reached.
   const wait = async (ms) => {
-    await advance(ms);
+    await advance(ms + 1);
     await app.idle();
   };
   return { app, gladys, clock, store, reader, start, wait, advance, lines, wall };

@@ -34,8 +34,14 @@ them):
 - The **injection** and the **tariffs** never enter the energy monitoring
   (the injection would be billed as consumption, the tariffs counted twice):
   plain sensors.
-- The reader gives its counters in Wh (published API description and a real
-  answer): they are converted to kWh.
+- `energyCounterIn` and `energyCounterOut` are in Wh according to the
+  published API description and a real answer: they are converted to kWh.
+  For T1 and T2 the description gives no unit: Wh is an assumption (its
+  example has In = T1 + T2). The README of the maker's library says kWh: the
+  integration therefore checks the unit. When the index does not follow the
+  power (its rise is outside 1/20 to 20 times the energy the power gives,
+  over at least 1 kWh), or when T1 + T2 do not make the index, the status
+  says so ("unit?"); the index is still sent.
 - The powers are sent every 10 seconds, only when they change (and every
   10 minutes otherwise). They are not sent:
   - when the reader says (field `agePower`) that its power is more than a
@@ -58,8 +64,9 @@ them):
 1. Install the EcoTracker on your meter and connect it to your Wi-Fi with the
    everHome app, as the maker explains. If the app offers it, turn on the
    local API of the reader.
-2. Find its IP address (in your router or the app) and preferably give it a
-   fixed address in your router.
+2. Find its IP address (in your router or the app) and give it a fixed
+   address in your router (DHCP reservation). It is needed when the reader
+   gives no serial number (see below).
 3. In Gladys, open the integration, enter this address, save.
 4. In the **Discover** tab, create the device.
 
@@ -90,16 +97,24 @@ extended data. The indexes go on meanwhile.
 
 - The real reader we know gives no serial number in its local answer: the
   device is then named **EcoTracker** (`ecotracker:reader`), and another
-  reader answering at the same address cannot be told from it. The status
-  recalls it; the guard of the index holds the jump or drop it would cause
-  anyway.
+  reader answering at the same address (a second EcoTracker of the home
+  taking its address) cannot always be told from it. A **fixed address is
+  therefore needed**. What still protects:
+  - after an outage (reader unreachable, restart), an answer whose fields
+    differ (phases, tariffs, `agePower`…) is not used: nothing is sent until
+    the fields come back, or until two clicks on **Accept the held index** if
+    it is the same reader;
+  - with the same fields, the guard of the index holds a drop, or a rise
+    larger than the home could have drawn since the last accepted value
+    (50 kW × hours without values); **a smaller rise is taken as
+    consumption** (after a 2-hour outage, up to 100 kWh).
 - When the reader gives a serial number (field `serial`, read by the maker's
   library), the device carries it and every answer is checked: another
   number at the same address gets its own device, its values never go to the
   previous one; an unreadable number is not used (red status, new try
   spaced out).
-- An answer without number after a reader that gave one is not used while
-  the device of that reader exists: the status says so. If you replaced the
+- An answer without number is not used while a device of a reader with a
+  number exists in Gladys: the status says so. If you replaced the
   reader with one without number, delete the old device in Gladys: the new
   reader then gets its own device.
 - Going from a reader without number to one with a number (after an update
@@ -110,7 +125,8 @@ extended data. The indexes go on meanwhile.
 
 - One reader per integration.
 - An unreadable counter (text, negative value, 0, out of bounds) is never
-  used: the status says so.
+  used. The status says so for the consumption counter (`energyCounterIn`);
+  unreadable tariffs and injection are simply ignored.
 - Read-only: the reader receives no command.
 
 ## Troubleshooting

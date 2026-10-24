@@ -18,8 +18,8 @@
       "type": "section",
       "label": { "en": "EcoTracker", "fr": "EcoTracker" },
       "description": {
-        "en": "Unofficial connector, not affiliated with everHome. It reads your EcoTracker, the optical reader clipped on the infrared port of an electricity meter, through its local API (to turn on in the everHome app), without any cloud: the net power every 10 seconds, the consumption index every minute for the Gladys energy monitoring, and, when the reader gives them, the tariff counters and the injection as plain sensors, the average power, the power per phase. Read-only. Never tested with a real EcoTracker.",
-        "fr": "Connecteur non officiel, sans lien avec everHome. Il lit votre EcoTracker, le lecteur optique posé sur le port infrarouge d'un compteur d'électricité, par son API locale (à activer dans l'application everHome), sans cloud : la puissance nette toutes les 10 secondes, l'index de consommation chaque minute pour le suivi énergétique de Gladys et, quand le lecteur les donne, les compteurs par tarif et l'injection en simples capteurs, la puissance moyenne, la puissance par phase. Lecture seule. Jamais testé avec un vrai EcoTracker."
+        "en": "Unofficial connector, not affiliated with everHome. It reads your EcoTracker, the optical reader clipped on the infrared port of an electricity meter, through its local API (to turn on in the everHome app if it offers it), without any cloud: the net power every 10 seconds, the consumption index every minute for the Gladys energy monitoring, and, when the reader gives them, the tariff counters and the injection as plain sensors, the average power, the power per phase. Read-only. Never tested with a real EcoTracker.",
+        "fr": "Connecteur non officiel, sans lien avec everHome. Il lit votre EcoTracker, le lecteur optique posé sur le port infrarouge d'un compteur d'électricité, par son API locale (à activer dans l'application everHome si elle le propose), sans cloud : la puissance nette toutes les 10 secondes, l'index de consommation chaque minute pour le suivi énergétique de Gladys et, quand le lecteur les donne, les compteurs par tarif et l'injection en simples capteurs, la puissance moyenne, la puissance par phase. Lecture seule. Jamais testé avec un vrai EcoTracker."
       },
       "links": [
         {
@@ -38,8 +38,8 @@
       "required": true,
       "label": { "en": "EcoTracker address", "fr": "Adresse de l'EcoTracker" },
       "description": {
-        "en": "The IP address of the EcoTracker on your network (shown by your router or the everHome app), with a port only if it is not 80. Preferably give it a fixed address in your router; if it changes, enter the new one: the device and its history are kept.",
-        "fr": "L'adresse IP de l'EcoTracker sur votre réseau (visible dans votre box ou l'application everHome), avec un port seulement s'il n'est pas 80. Donnez-lui de préférence une adresse fixe dans votre box ; si elle change, saisissez la nouvelle : l'appareil et son historique sont gardés."
+        "en": "The IP address of the EcoTracker on your network (shown by your router or the everHome app), with a port only if it is not 80. Give it a fixed address in your router (DHCP reservation): it is needed when the reader gives no serial number, since another device taking its address could not always be told from it. If the address changes, enter the new one: the device and its history are kept.",
+        "fr": "L'adresse IP de l'EcoTracker sur votre réseau (visible dans votre box ou l'application everHome), avec un port seulement s'il n'est pas 80. Donnez-lui une adresse fixe dans votre box (réservation DHCP) : c'est nécessaire quand le lecteur ne donne pas de numéro de série, car un autre appareil qui prendrait son adresse ne pourrait pas toujours en être distingué. Si l'adresse change, saisissez la nouvelle : l'appareil et son historique sont gardés."
       },
       "placeholder": { "en": "e.g. 192.168.1.70", "fr": "ex. 192.168.1.70" }
     }

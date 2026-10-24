@@ -530,7 +530,7 @@ test('a device created again starts without the old index state', async () => {
   const fresh = created();
   s.gladys.devices.splice(0, 1, fresh);
   await s.app.onDeviceCreated(fresh);
-  assert.equal(store.data.indexes[F('consumption_index')], undefined);
+  assert.deepEqual(store.data.indexes[F('consumption_index')], { last: null, held: null });
   await s.wait(MINUTE);
   assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 500);
   assert.doesNotMatch(status(s), /a drop from/);
@@ -552,7 +552,7 @@ test('the test button reads when a read is due, and tells it', async () => {
   await s.start();
   assert.match((await s.app.testConnection()).en, /^Last read .*Next read in 10 s/);
   // The clock moves without the timer firing: the click finds a read due.
-  s.clock.now += 10 * SECOND;
+  s.clock.now += 10 * SECOND + 1;
   const answer = await s.app.testConnection();
   assert.match(answer.en, /^Read now: EcoTracker, net power 350 W, consumption index 9000 kWh/);
   assert.equal(reader.net.calls.length, 2);
@@ -566,4 +566,181 @@ test('the test button tells a held index as held', async () => {
   });
   await s.start();
   assert.match((await s.app.testConnection()).en, /900000 kWh \(held back\)/);
+});
+
+test('a fresh install: the test button reads at once and says "Read now"', async () => {
+  const s = await setup();
+  // Started, its first timer not yet run: the click finds a read due.
+  await s.app.start(CONFIG);
+  const answer = await s.app.testConnection();
+  assert.match(answer.en, /^Read now: EcoTracker, net power 350 W/);
+  assert.equal(s.reader.net.calls.length, 1);
+  await s.app.stop();
+});
+
+test('a device created again during a read never inherits the old reference (r1, 4)', async () => {
+  const store = createMemoryStore();
+  const reader = createReader(() => eco({ kwh: 500 }));
+  const device = created({ index: { value: 9000, at: NOW - MINUTE } });
+  const s = await setup({ devices: [device], reader, store });
+  await s.start();
+  assert.match(status(s), /a drop from 9000 to 500 kWh/);
+  // A slow /data: a read lands while the creation writes.
+  const save = store.save.bind(store);
+  let release;
+  store.save = (data) =>
+    new Promise((resolve) => {
+      release = () => resolve(save(data));
+    });
+  const fresh = created();
+  s.gladys.devices.splice(0, 1, fresh);
+  const creating = s.app.onDeviceCreated(fresh);
+  store.save = save;
+  await s.wait(MINUTE);
+  release();
+  await creating;
+  await s.wait(10 * SECOND);
+  assert.doesNotMatch(status(s), /a drop from/);
+  assert.equal(store.data.indexes[F('consumption_index')].last.value, 500);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 500);
+});
+
+// --- Review r1, point 2: is the counter in Wh? -----------------------------------------
+
+/** A reader drawing `w` watts, its counter in Wh (`kwhUnit`: in kWh, as a wrong firmware). */
+const drawing =
+  (w, { kwhUnit = false, extra = {} } = {}) =>
+  (t) => {
+    const kwh = 9000 + (w * (t - NOW)) / 3_600_000 / 1000;
+    return {
+      power: w,
+      energyCounterIn: kwhUnit ? kwh : Math.round(kwh * 1000 * 10) / 10,
+      ...extra,
+    };
+  };
+
+test('a reader in kWh from the creation: the status says the unit is doubtful', async () => {
+  const reader = createReader(drawing(2000, { kwhUnit: true }));
+  const s = await setup({ devices: [created()], reader });
+  await s.start();
+  await s.wait(40 * MINUTE);
+  assert.match(status(s), /does not follow the power/);
+  assert.ok(s.lines.some((l) => /does not follow the power/.test(l)));
+  assert.ok(statesOf(s.gladys, 'consumption_index').length > 0, 'the index is not stopped');
+});
+
+test('a reader in Wh at 2 kW for an hour: no unit note', async () => {
+  const reader = createReader(drawing(2000));
+  const s = await setup({ devices: [created()], reader });
+  await s.start();
+  await s.wait(HOUR);
+  assert.doesNotMatch(status(s), /does not follow|tariff counters/);
+});
+
+test('a locked meter without power: no unit note', async () => {
+  const reader = createReader((t) => ({ energyCounterIn: 9_000_000 + (t - NOW) / 1800 }));
+  const s = await setup({ devices: [created()], reader });
+  await s.start();
+  await s.wait(HOUR);
+  assert.doesNotMatch(status(s), /does not follow/);
+});
+
+test('T1 + T2 that do not make the index: a note', async () => {
+  const reader = createReader(() => ({
+    ...eco(),
+    energyCounterInT1: 5400,
+    energyCounterInT2: 3600,
+  }));
+  const s = await setup({ devices: [created()], reader });
+  await s.start();
+  assert.match(status(s), /do not add up|T1 \+ T2/);
+  reader.world = () => eco();
+  await s.wait(10 * SECOND);
+  assert.doesNotMatch(status(s), /T1 \+ T2/);
+});
+
+// --- Review r1, point 3: a reader without serial after an outage -------------------------
+
+test('another shape after an outage: nothing sent until it comes back', async () => {
+  const store = createMemoryStore();
+  const reader = createReader(() => eco({ kwh: 9000, extra: { agePower: 1 } }));
+  const s = await setup({ devices: [created()], reader, store });
+  await s.start();
+  assert.equal(store.data.shape.key, 'reader');
+  reader.world = () => 'timeout';
+  await s.wait(30 * MINUTE);
+  // Another reader took the address: no phases, no tariff, its index higher.
+  reader.world = () => ({ power: 900, energyCounterIn: 9_020_000, energyCounterOut: 5 });
+  await s.wait(5 * MINUTE);
+  assert.ok(!statesOf(s.gladys, 'consumption_index').includes(9020));
+  assert.ok(!statesOf(s.gladys, 'power').includes(900));
+  assert.match(status(s), /answers with other fields than before/);
+  // The first reader back: its values go on.
+  reader.world = () => eco({ kwh: 9000.5, w: 333, extra: { agePower: 1 } });
+  await s.wait(MINUTE);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 9000.5);
+  assert.doesNotMatch(status(s), /other fields/);
+});
+
+test('another shape: kept across a restart, accepted only in two clicks', async () => {
+  const store = createMemoryStore();
+  const reader = createReader(() => eco({ kwh: 9000, extra: { agePower: 1 } }));
+  const device = created();
+  let s = await setup({ devices: [device], reader, store });
+  await s.start();
+  await s.app.stop();
+  reader.world = () => ({ power: 900, energyCounterIn: 9_000_100, agePower: 1 });
+  s = await setup({ devices: [device], reader, store, now: s.clock.now + MINUTE });
+  await s.start();
+  assert.match(status(s), /other fields/);
+  assert.match((await s.app.acceptHeldIndex()).en, /Nothing is accepted yet/);
+  await s.wait(10 * SECOND);
+  assert.match((await s.app.acceptHeldIndex()).en, /^Accepted: the new fields/);
+  await s.wait(MINUTE);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 9000.1);
+  assert.doesNotMatch(status(s), /other fields/);
+});
+
+test('a shape changing between two reads in a row is taken (a meter unlocked)', async () => {
+  const reader = createReader(() => ({ energyCounterIn: 9_000_000 }));
+  const s = await setup({ devices: [created()], reader });
+  await s.start();
+  reader.world = () => eco({ kwh: 9000.01, extra: { agePower: 1 } });
+  await s.wait(MINUTE);
+  assert.doesNotMatch(status(s), /other fields/);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 9000.01);
+});
+
+// --- Review r1, points 5, 6, 8 -----------------------------------------------------------
+
+test('/data lost: an answer without serial is not used while a serial device exists', async () => {
+  const reader = createReader(() => eco({ kwh: 9002 }));
+  const device = created({ answer: eco({ serial: SERIAL }) });
+  const s = await setup({ devices: [device], reader, store: createMemoryStore() });
+  await s.start();
+  await s.wait(2 * MINUTE);
+  assert.deepEqual(s.gladys.fake.states, []);
+  assert.match(status(s), new RegExp(`while EcoTracker ${SERIAL} did`));
+  assert.ok(!s.gladys.fake.discoveredDevices.some((d) => d.external_id === D(undefined)));
+});
+
+test('a restart after a crash waits a whole interval (the time in /data may be old)', async () => {
+  const reader = createReader();
+  const store = createMemoryStore({ lastAttemptAt: NOW - 40 * SECOND });
+  const s = await setup({ reader, store });
+  await s.start();
+  assert.equal(reader.net.calls.length, 0);
+  await s.wait(9 * SECOND);
+  assert.equal(reader.net.calls.length, 0);
+  await s.wait(SECOND);
+  assert.equal(reader.net.calls.length, 1);
+});
+
+test('a locked meter without any power: no "frozen" note', async () => {
+  const reader = createReader(() => ({ energyCounterIn: 9_000_000 }));
+  const s = await setup({ devices: [created()], reader });
+  await s.start();
+  await s.wait(30 * MINUTE);
+  assert.match(status(s), /PIN-locked/);
+  assert.doesNotMatch(status(s), /have not changed/);
 });

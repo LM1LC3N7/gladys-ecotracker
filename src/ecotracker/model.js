@@ -101,6 +101,26 @@ function ageOf(raw) {
   return value !== undefined && value >= 0 && value <= 1e12 ? value : undefined;
 }
 
+/** The fields whose presence makes the "shape" of an answer (a reader without serial). */
+const SHAPE_FIELDS = [
+  'power',
+  'powerAvg',
+  'agePower',
+  'powerPhase1',
+  'powerPhase2',
+  'powerPhase3',
+  'energyCounterIn',
+  'energyCounterInT1',
+  'energyCounterInT2',
+  'energyCounterOut',
+  'serial',
+  'firmwareVersion',
+  'rssi',
+];
+
+/** A shape we accept from /data: known field names joined by commas. */
+export const SHAPE = new RegExp(`^(?:(?:${SHAPE_FIELDS.join('|')})(?:,|$))*$`);
+
 /**
  * The answer, parsed:
  * - undefined: not an EcoTracker answer (not an object, too many fields, or
@@ -142,6 +162,11 @@ export function parseData(payload) {
     },
     exportTotal: energyOf(payload, 'energyCounterOut'),
     rssi: rssiOf(own(payload, 'rssi')),
+    // The fields present (not null), in a fixed order: another reader at the
+    // address often sends another set (phases, tariffs, agePower).
+    shape: SHAPE_FIELDS.filter(
+      (key) => own(payload, key) !== undefined && own(payload, key) !== null,
+    ).join(','),
     // energyCounterIn sent but not usable (not a number, 0 or below, out of
     // bounds): the status says so; the index is never published at 0.
     indexRefused: rawIndex !== undefined && rawIndex !== null && total === undefined,

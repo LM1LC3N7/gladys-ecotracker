@@ -124,8 +124,20 @@ export const T = {
     ),
   notes: {
     noSerial: {
-      en: 'The reader gives no serial number: another reader at this address could not be told from it (a jump or a drop of the index is held back anyway).',
-      fr: 'Le lecteur ne donne pas de numéro de série : un autre lecteur à cette adresse ne pourrait pas en être distingué (un saut ou une baisse de l’index est retenu de toute façon).',
+      en: 'The reader gives no serial number: give it a fixed address in your router (DHCP reservation), it is needed. Another reader at this address could not always be told from it: a drop of the index, or a rise larger than the home could draw since the last accepted value (50 kW × hours without values), is held back; a smaller rise would be counted as consumption.',
+      fr: 'Le lecteur ne donne pas de numéro de série : donnez-lui une adresse fixe dans votre box (réservation DHCP), c’est nécessaire. Un autre lecteur à cette adresse ne pourrait pas toujours en être distingué : une baisse de l’index, ou une hausse plus grande que ce que le foyer a pu consommer depuis la dernière valeur acceptée (50 kW × heures sans valeurs), est retenue ; une hausse plus petite serait comptée comme une consommation.',
+    },
+    shapeChanged: {
+      en: 'After an outage, the reader answers with other fields than before: it may be another reader at this address. Nothing is sent until the fields come back. If it is the same reader (meter unlocked, update), click "Accept the held index" twice.',
+      fr: 'Après une coupure, le lecteur répond avec d’autres champs qu’avant : ce peut être un autre lecteur à cette adresse. Rien n’est envoyé tant que les champs ne reviennent pas. Si c’est bien le même lecteur (compteur débloqué, mise à jour), cliquez deux fois sur « Accepter l’index retenu ».',
+    },
+    unitDoubt: (ratio) => ({
+      en: `The consumption counter does not follow the power (it rose ${ratio.toPrecision(2)} times the energy the power gives): unit? The integration reads the counters in Wh, as the published API says; a reader in kWh would give an index 1000 times too small. The index is still sent.`,
+      fr: `Le compteur de consommation ne suit pas la puissance (il a augmenté de ${ratio.toPrecision(2)} fois l’énergie donnée par la puissance) : unité ? L’intégration lit les compteurs en Wh, comme le dit l’API publiée ; un lecteur en kWh donnerait un index 1000 fois trop petit. L’index est quand même envoyé.`,
+    }),
+    tariffDoubt: {
+      en: 'The tariff counters (T1 + T2) do not add up to the consumption counter: one of them may be in another unit.',
+      fr: 'Les compteurs par tarif (T1 + T2) ne font pas le compteur de consommation : l’un d’eux est peut-être dans une autre unité.',
     },
     noPower: {
       en: 'The meter gives no power: it is probably PIN-locked (enter the PIN given by your grid operator on the meter to unlock its extended data). The indexes go on.',
@@ -198,6 +210,14 @@ export const T = {
             en: `Accepted: the index ${kwh(to)} kWh will be sent at the next read, and ${kwh(to - from)} kWh (plus what the home uses meanwhile) will be counted at once as consumption. A different value stays held.`,
             fr: `Accepté : l’index ${kwh(to)} kWh sera envoyé à la prochaine lecture, et ${kwh(to - from)} kWh (plus ce que le foyer consomme d’ici là) seront comptés d’un coup comme consommation. Une autre valeur reste retenue.`,
           },
+    confirmShape: (within) => ({
+      en: `The reader answers with other fields than before the outage. Nothing is accepted yet: click "Accept the held index" again between 3 seconds and ${delay(within).en} from now if it is the same reader; its values are then sent again (the index still checked by its guard).`,
+      fr: `Le lecteur répond avec d’autres champs qu’avant la coupure. Rien n’est encore accepté : cliquez de nouveau sur « Accepter l’index retenu » entre 3 secondes et ${delay(within).fr} à partir de maintenant si c’est bien le même lecteur ; ses valeurs sont alors de nouveau envoyées (l’index toujours vérifié par sa garde).`,
+    }),
+    shapeDone: {
+      en: 'Accepted: the new fields of the reader are kept; its values are sent from the next read, the index still checked by its guard.',
+      fr: 'Accepté : les nouveaux champs du lecteur sont gardés ; ses valeurs sont envoyées dès la prochaine lecture, l’index toujours vérifié par sa garde.',
+    },
     changed: {
       en: 'Not accepted: the held value changed since the first click. Look at the status, then click "Accept the held index" again to list it.',
       fr: 'Non accepté : la valeur retenue a changé depuis le premier clic. Regardez l’état, puis cliquez de nouveau sur « Accepter l’index retenu » pour la lister.',

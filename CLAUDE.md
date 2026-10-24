@@ -72,13 +72,20 @@ test/                             node --test, against the SDK's fake Gladys, a 
   for `energy-sensor`, none for `unknown` (the unit is in the name). The
   counters of the reader are in Wh.
 - **The pace**: never two reads less than 10 s apart, whatever asks; the time
-  of the last read is in `/data`. Never add a read path that skips `dueAt()`.
+  of the last read is in `/data` (exact after a clean stop; after a crash
+  the first read waits a whole interval). Never add a read path that skips
+  `dueAt()`. **One clock read per decision**: `dueAt(mono)` with the
+  caller's `mono` (a real clock moves between two calls); the test clock
+  moves at every call, and `test/realclock.test.js` runs real timers.
 - **Late answers**: every await in a read is followed by `gone()`; an old
   session never publishes nor sets a status.
 - **Identity**: the values of an answer go to the device of the serial of
   that answer (`ecotracker:sn-<serial>`, or `ecotracker:reader` without
   serial). An unreadable serial is a wrong answer, never another reader; no
-  serial after a serial (device existing) is not used.
+  serial while a device with a serial exists is not used. Without serial,
+  another shape of the answer after an outage holds every value.
+- **Unit check**: the index rise against the power, T1 + T2 against the
+  index: a note and a log line, never a stop of the index.
 - **Freshness**: `agePower` above 1 min or values unchanged for 15 min: no
   live value sent; the index goes on.
 - **Pauses**: 429/5xx pause from 1 min to 6 h, on the monotonic clock in

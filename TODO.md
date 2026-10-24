@@ -13,13 +13,21 @@
 
 - [ ] The unit of the counters: Wh in the published description of the API
       and in a real answer (1 541 618.4 for a home), kWh in the README of the
-      maker's library. Read in Wh here; a reader in kWh would give an index
-      1000 times too small (a drop then held by the guard, never billed).
+      maker's library; T1 and T2 have no unit in the description (Wh assumed,
+      its example has In = T1 + T2). Read in Wh here. A reader in kWh on an
+      existing device gives a drop held by the guard; on a device created on
+      it, the guard takes the first value, so the index would be 1000 times
+      too small and rounded to the kWh: the unit check (index rise against
+      the integral of the power over 1 kWh, ratio outside 1/20..20; T1 + T2
+      against the index) tells it in the status and the log, without
+      stopping the index.
 - [ ] Whether some firmware sends `serial`, `firmwareVersion` and `rssi` (the
       maker's library reads them; the real answer we know has none).
 - [ ] `agePower`: the age of the power in ms (496 in the real answer)? Does
       it grow when the optical head loses the meter?
-- [ ] The PIN-locked meter: no `power` at all, or `power` at 0?
+- [ ] The PIN-locked meter: no `power` at all, or `power` at 0? Does it give
+      the index to the whole kWh only (the "frozen" note is not shown when
+      the answer has no power at all)?
 - [ ] Whether the local API must be turned on in the everHome app.
 
 ## Decisions
@@ -52,12 +60,19 @@
   device of the serial of that same answer; another serial at the address
   gets its own device and never writes into the old one (status note). A
   serial present but unreadable is a wrong answer (red, retries doubled),
-  never "another reader". An answer without serial after a reader with one,
-  while that reader's device exists, is not used and does not touch `/data`
-  (a weaker identity never downgrades a stronger one); deleting that device
+  never "another reader". An answer without serial, while any created device
+  of a reader with a serial exists in Gladys (read from `gladys.devices`, not
+  `/data`, which may be lost), is not used and does not touch `/data` (a
+  weaker identity never downgrades a stronger one); deleting that device
   lets the serial-less reader get its own (documented). A reader that gives
-  no serial cannot be told from another one at the same address: the status
-  says so, and the index guard holds the jump or drop it would cause.
+  no serial cannot always be told from another one at the same address: a
+  fixed address is needed (status note, docs, manifest). The shape of its
+  answer (the fields present) is kept in `/data`; after an outage (a start,
+  a failure) another shape holds every value until it comes back or the user
+  accepts it in two clicks; a shape changing between two reads in a row (a
+  meter unlocked) is taken. With the same shape, the guard holds a drop or a
+  rise above 50 kW x the hours since the last accepted value, and takes a
+  smaller rise as consumption (stated as such in the status and the docs).
 - **Energy index (lot 6 rules)**: `energyCounterIn` in Wh, rounded to the
   Wh, converted to kWh; 0, below 0, a text or `""` is never a value. It
   passes `IndexGuard` (`src/guard.js`, the approved file of
@@ -90,9 +105,14 @@
 - **Pace (lot 11 lessons)**: one timer, one read at a time, never two reads
   less than 10 s apart whatever asks: a reconnection, a save, the Discover
   tab, a device created, the accept button only wait for the next read; the
-  test button reads only when one is due. The time of the last read is in
-  `/data` (written at most once a minute, and at a clean stop). A
-  reconnection during a read does not start another one.
+  test button reads only when one is due. One clock read per decision
+  (`dueAt(mono)`): a real clock always moves between two reads (review r1:
+  without it, no read ever went). The test clock moves at every call, and a
+  test runs real timers against a real local server. The time of the last
+  read is in `/data` (written at most once a minute, exactly at a clean
+  stop); after a crash (time not marked exact, less than 70 s old) the first
+  read waits a whole interval. A reconnection during a read does not start
+  another one.
 - **Late answers (lot 11)**: a read belongs to the session of its address; a
   late answer of an old address publishes nothing and sets no status (checked
   after every await, tested).
