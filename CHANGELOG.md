@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
 ### Added
 
 - First version: an EcoTracker (everHome) read through its local API
@@ -32,3 +34,6 @@ the notes of the version's GitHub Release.
   reader.
 - Test button that never reads faster than the 10-second pace; pace and
   429/5xx pauses kept across restarts, pauses on a monotonic clock.
+
+[Unreleased]: https://github.com/LM1LC3N7/gladys-ecotracker/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-ecotracker/releases/tag/v0.1.1
