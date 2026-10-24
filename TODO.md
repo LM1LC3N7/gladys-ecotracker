@@ -67,10 +67,13 @@
   lets the serial-less reader get its own (documented). A reader that gives
   no serial cannot always be told from another one at the same address: a
   fixed address is needed (status note, docs, manifest). The shape of its
-  answer (the fields present) is kept in `/data`; after an outage (a start,
-  a failure) another shape holds every value until it comes back or the user
-  accepts it in two clicks; a shape changing between two reads in a row (a
-  meter unlocked) is taken. With the same shape, the guard holds a drop or a
+  answer (the meter fields present: powers, phases, counters, tariffs; never
+  `agePower`, `rssi`, `firmwareVersion`, `serial`, which belong to the reader
+  and change with a firmware: review r2) is kept in `/data`; after an outage
+  (a start, a failure) another shape holds every value and does not grow the
+  Discovery features until it comes back or the user accepts it in two
+  clicks; without outage, a new shape becomes the reference after 3
+  identical answers in a row (a single odd answer never does). With the same shape, the guard holds a drop or a
   rise above 50 kW x the hours since the last accepted value, and takes a
   smaller rise as consumption (stated as such in the status and the docs).
 - **Energy index (lot 6 rules)**: `energyCounterIn` in Wh, rounded to the
@@ -108,7 +111,8 @@
   test button reads only when one is due. One clock read per decision
   (`dueAt(mono)`): a real clock always moves between two reads (review r1:
   without it, no read ever went). The test clock moves at every call, and a
-  test runs real timers against a real local server. The time of the last
+  test runs real timers (sped up 20 times, read instants taken where the
+  app calls fetch) against a real local server. The time of the last
   read is in `/data` (written at most once a minute, exactly at a clean
   stop); after a crash (time not marked exact, less than 70 s old) the first
   read waits a whole interval. A reconnection during a read does not start

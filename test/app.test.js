@@ -701,7 +701,7 @@ test('another shape: kept across a restart, accepted only in two clicks', async 
   assert.doesNotMatch(status(s), /other fields/);
 });
 
-test('a shape changing between two reads in a row is taken (a meter unlocked)', async () => {
+test('a shape changing without outage is taken after three answers in a row', async () => {
   const reader = createReader(() => ({ energyCounterIn: 9_000_000 }));
   const s = await setup({ devices: [created()], reader });
   await s.start();
@@ -743,4 +743,107 @@ test('a locked meter without any power: no "frozen" note', async () => {
   await s.wait(30 * MINUTE);
   assert.match(status(s), /PIN-locked/);
   assert.doesNotMatch(status(s), /have not changed/);
+});
+
+// --- Review r2: the shape counts the fields of the meter only ---------------------------
+
+test('a reader update adding rssi and firmwareVersion after a restart holds nothing', async () => {
+  const store = createMemoryStore();
+  const reader = createReader(() => eco({ kwh: 9000 }));
+  const device = created();
+  let s = await setup({ devices: [device], reader, store });
+  await s.start();
+  await s.app.stop();
+  reader.world = () =>
+    eco({ kwh: 9000.2, extra: { rssi: -60, firmwareVersion: '2.0.0', agePower: 1 } });
+  s = await setup({ devices: [device], reader, store, now: s.clock.now + 2 * MINUTE });
+  await s.start();
+  assert.doesNotMatch(status(s), /other fields/);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 9000.2);
+});
+
+test('a restart where the last answer had no agePower holds nothing', async () => {
+  const store = createMemoryStore();
+  const reader = createReader(() => eco({ kwh: 9000, extra: { agePower: 1 } }));
+  const device = created();
+  let s = await setup({ devices: [device], reader, store });
+  await s.start();
+  reader.world = () => eco({ kwh: 9000 });
+  await s.wait(10 * SECOND);
+  await s.app.stop();
+  reader.world = () => eco({ kwh: 9000.1, extra: { agePower: 1 } });
+  s = await setup({ devices: [device], reader, store, now: s.clock.now + MINUTE });
+  await s.start();
+  assert.doesNotMatch(status(s), /other fields/);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 9000.1);
+});
+
+test('a single odd answer, then an outage: the normal answers are not held', async () => {
+  const reader = createReader(() => eco({ kwh: 9000 }));
+  const s = await setup({ devices: [created()], reader });
+  await s.start();
+  const { powerAvg, ...odd } = eco({ kwh: 9000 });
+  assert.ok(powerAvg);
+  reader.world = () => odd;
+  await s.wait(10 * SECOND);
+  reader.world = () => 'timeout';
+  await s.wait(MINUTE);
+  reader.world = () => eco({ kwh: 9000.3 });
+  await s.wait(2 * MINUTE);
+  assert.doesNotMatch(status(s), /other fields/);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 9000.3);
+});
+
+test('a meter unlocked with the reader taken off: held, two clicks lift it', async () => {
+  const reader = createReader(() => ({ energyCounterIn: 9_000_000 }));
+  const s = await setup({ devices: [created({ answer: eco() })], reader });
+  await s.start();
+  reader.world = () => 'timeout';
+  await s.wait(3 * MINUTE);
+  reader.world = () => eco({ kwh: 9000.1, extra: { agePower: 1 } });
+  // Retries spaced out after 3 min without answer: the next within 5 min.
+  await s.wait(5 * MINUTE);
+  assert.match(status(s), /other fields/);
+  assert.ok(!statesOf(s.gladys, 'consumption_index').includes(9000.1));
+  // The features of a maybe other reader are not offered meanwhile (r2, point 4).
+  const offered = s.gladys.fake.discoveredDevices.at(-1).features.map((f) => f.external_id);
+  assert.ok(offered.includes(F('consumption_index')));
+  await s.app.acceptHeldIndex();
+  await s.wait(10 * SECOND);
+  assert.match((await s.app.acceptHeldIndex()).en, /^Accepted: the new fields/);
+  await s.wait(MINUTE);
+  assert.equal(statesOf(s.gladys, 'consumption_index').at(-1), 9000.1);
+});
+
+test('while the shape is held, Discovery does not grow with the fields of the answer', async () => {
+  const store = createMemoryStore();
+  const reader = createReader(() => ({ energyCounterIn: 9_000_000 }));
+  const s = await setup({ reader, store });
+  await s.start();
+  reader.world = () => 'timeout';
+  await s.wait(MINUTE);
+  reader.world = () => eco({ kwh: 9000.1, extra: { agePower: 1 } });
+  await s.wait(MINUTE);
+  assert.match(status(s), /other fields/);
+  const offered = s.gladys.fake.discoveredDevices.at(-1).features.map((f) => f.external_id);
+  assert.deepEqual(offered, [F('consumption_index')]);
+  assert.deepEqual(store.data.keys, ['consumption_index']);
+});
+
+test('a start that read an exact time rewrites it at the first read (r2, 3)', async () => {
+  const store = createMemoryStore({ lastAttemptAt: NOW - 20 * SECOND, attemptExact: true });
+  const reader = createReader();
+  const s = await setup({ reader, store });
+  reader.net.hold = true;
+  await s.app.start(CONFIG);
+  const running = s.advance(0);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reader.net.calls.length, 1);
+  // /data written before the answer: a crash now never reads again at once.
+  assert.equal(store.data.lastAttemptAt, NOW);
+  assert.equal(store.data.attemptExact, false);
+  reader.net.hold = false;
+  reader.net.release();
+  await running;
+  await s.app.stop();
 });

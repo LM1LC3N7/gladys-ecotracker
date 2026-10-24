@@ -75,7 +75,14 @@ import {
   validKeys,
 } from './devices.js';
 import { ReaderClient, ReaderError } from './ecotracker/client.js';
-import { DEVICE_KEY, NO_SERIAL_KEY, SHAPE, deviceKey, fingerprintOf } from './ecotracker/model.js';
+import {
+  DEVICE_KEY,
+  NO_SERIAL_KEY,
+  SHAPE,
+  deviceKey,
+  fingerprintOf,
+  meterShape,
+} from './ecotracker/model.js';
 import { IndexGuard } from './guard.js';
 import { T } from './i18n.js';
 import { createFileStore } from './store.js';
@@ -245,8 +252,12 @@ export class EcoTrackerApp {
       typeof kept.shape.shape === 'string' &&
       kept.shape.shape.length <= 400 &&
       SHAPE.test(kept.shape.shape)
-        ? { key: kept.shape.key, shape: kept.shape.shape }
+        ? { key: kept.shape.key, shape: meterShape(kept.shape.shape) }
         : undefined;
+    /** A new shape seen without outage: `{ shape, count }`, the reference after 3 in a row. */
+    this.shapeCandidate = undefined;
+    /** The start read an exact time in /data: the first read rewrites it at once (r2, 3). */
+    this.attemptRewrite = kept.attemptExact === true;
     /**
      * The freshness kept in /data: `{ key, hash, at }`, the hash of the last
      * values read and the wall time they last changed. After a restart, a
@@ -292,6 +303,7 @@ export class EcoTrackerApp {
      * compared to the one kept (a reader without serial).
      */
     this.afterOutage = true;
+    this.shapeCandidate = undefined;
     /**
      * A reader without serial answers with another shape after an outage:
      * maybe another reader at the address. `{ from, to }`; nothing is
@@ -560,7 +572,10 @@ export class EcoTrackerApp {
 
   async saveAttempt(now) {
     this.lastAttemptAt = now;
+    const rewrite = this.attemptRewrite;
+    this.attemptRewrite = false;
     if (
+      rewrite ||
       this.savedAttemptAt === undefined ||
       now < this.savedAttemptAt ||
       now - this.savedAttemptAt >= ATTEMPT_SAVE_EVERY
@@ -647,10 +662,12 @@ export class EcoTrackerApp {
     if (!this.shapeChanged) {
       this.checkUnits(reading, mono);
     }
+    // While the shape is held (maybe another reader), its features are not
+    // offered (r2, point 4).
     const keys = union(
       this.keys,
       capabilitiesOfDevice(this.createdDevice()),
-      capabilitiesOf(reading),
+      this.shapeChanged ? undefined : capabilitiesOf(reading),
     );
     const grew = keys.size !== this.keys.size;
     this.keys = keys;
@@ -673,6 +690,7 @@ export class EcoTrackerApp {
     const code = err?.code ?? 'error';
     // The next answer comes after an outage: its shape is checked.
     this.afterOutage = true;
+    this.shapeCandidate = undefined;
     this.resetUnitCheck();
     const now = this.now();
     // The pause and the next try count from the failure, not from the start
@@ -745,11 +763,12 @@ export class EcoTrackerApp {
 
   /**
    * A reader without serial cannot be told from another one at the same
-   * address. Its shape (the fields it sends) is kept in /data; after an
-   * outage (a start, a failure), another shape is maybe another reader: its
-   * values are not published until the shape comes back or the user accepts
-   * it (the accept button). A shape changing between two reads in a row
-   * (a meter unlocked by its PIN) is taken.
+   * address. Its shape (the meter fields it sends) is kept in /data; after
+   * an outage (a start, a failure), another shape is maybe another reader:
+   * its values are not published until the shape comes back or the user
+   * accepts it (the accept button). Without outage, a new shape (a meter
+   * unlocked by its PIN) becomes the reference after 3 identical answers in
+   * a row.
    */
   followShape(reading, key) {
     const afterOutage = this.afterOutage;
@@ -761,6 +780,7 @@ export class EcoTrackerApp {
     const kept = this.shape?.key === key ? this.shape.shape : undefined;
     if (kept === undefined || reading.shape === kept) {
       this.shapeChanged = undefined;
+      this.shapeCandidate = undefined;
       this.shape = { key, shape: reading.shape };
       return;
     }
@@ -769,9 +789,17 @@ export class EcoTrackerApp {
         this.logger.warn('ecotracker: the answer has another shape after an outage: held');
       }
       this.shapeChanged = { from: kept, to: reading.shape };
+      this.shapeCandidate = undefined;
       return;
     }
-    this.shape = { key, shape: reading.shape };
+    // Without outage, a new shape becomes the reference only after 3
+    // identical answers in a row: a single odd answer never does (r2, 1).
+    const count = this.shapeCandidate?.shape === reading.shape ? this.shapeCandidate.count + 1 : 1;
+    this.shapeCandidate = { shape: reading.shape, count };
+    if (count >= 3) {
+      this.shape = { key, shape: reading.shape };
+      this.shapeCandidate = undefined;
+    }
   }
 
   isFrozen(mono) {

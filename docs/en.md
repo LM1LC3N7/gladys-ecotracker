@@ -72,7 +72,10 @@ them):
 
 If the status says the meter gives no power, it is probably PIN-locked:
 enter on the meter the PIN given by your grid operator to unlock its
-extended data. The indexes go on meanwhile.
+extended data. The indexes go on meanwhile. When the reader gives no serial
+number and you take it off the meter to enter the PIN, it then answers with
+new fields after an outage: all its values, the index included, are held
+(the status says so). Two clicks on **Accept the held index** lift it.
 
 ## Buttons
 
@@ -93,6 +96,11 @@ extended data. The indexes go on meanwhile.
   nothing, the consumption goes on from there. Saving the configuration never
   accepts anything.
 
+  The same button, in two clicks, also accepts the **new fields** of a
+  reader without serial number after an outage (see "Identity of the
+  reader"): the first click shows them, the second keeps them; the index
+  stays checked by its guard.
+
 ## Identity of the reader
 
 - The real reader we know gives no serial number in its local answer: the
@@ -100,8 +108,9 @@ extended data. The indexes go on meanwhile.
   reader answering at the same address (a second EcoTracker of the home
   taking its address) cannot always be told from it. A **fixed address is
   therefore needed**. What still protects:
-  - after an outage (reader unreachable, restart), an answer whose fields
-    differ (phases, tariffs, `agePower`…) is not used: nothing is sent until
+  - after an outage (reader unreachable, restart), an answer whose meter
+    fields differ (powers, phases, counters and tariffs; not `agePower`,
+    `rssi`, `firmwareVersion`, which belong to the reader) is not used: nothing is sent until
     the fields come back, or until two clicks on **Accept the held index** if
     it is the same reader;
   - with the same fields, the guard of the index holds a drop, or a rise

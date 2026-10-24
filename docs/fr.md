@@ -75,7 +75,11 @@ qu'une partie) :
 Si l'état indique que le compteur ne donne pas de puissance, il est sans
 doute verrouillé par PIN : saisissez sur le compteur le PIN donné par votre
 gestionnaire de réseau pour débloquer ses données étendues. Les index
-continuent en attendant.
+continuent en attendant. Si le lecteur ne donne pas de numéro de série et
+que vous le retirez du compteur pour saisir le PIN, le lecteur répond
+ensuite avec de nouveaux champs après une coupure : toutes ses valeurs,
+index compris, sont alors retenues (l'état le dit). Deux clics sur
+**Accepter l'index retenu** le lèvent.
 
 ## Boutons
 
@@ -96,6 +100,11 @@ continuent en attendant.
   acceptée ne facture rien, la consommation repart de là. Enregistrer la
   configuration n'accepte jamais rien.
 
+  Le même bouton, en deux clics, accepte aussi les **nouveaux champs** d'un
+  lecteur sans numéro de série après une coupure (voir « Identité du
+  lecteur ») : le premier clic les signale, le second les garde ; l'index
+  reste vérifié par sa garde.
+
 ## Identité du lecteur
 
 - Le lecteur réel connu ne donne pas de numéro de série dans sa réponse
@@ -104,7 +113,9 @@ continuent en attendant.
   du foyer qui reprend son adresse) ne peut pas toujours en être distingué.
   Une **adresse fixe est donc nécessaire**. Ce qui protège quand même :
   - après une coupure (lecteur injoignable, redémarrage), une réponse dont
-    les champs diffèrent (phases, tarifs, `agePower`…) n'est pas utilisée :
+    les champs du compteur diffèrent (puissances, phases, compteurs et
+    tarifs ; pas `agePower`, `rssi`, `firmwareVersion`, propres au lecteur)
+    n'est pas utilisée :
     rien n'est envoyé tant que les champs ne reviennent pas, ou jusqu'à deux
     clics sur **Accepter l'index retenu** si c'est bien le même lecteur ;
   - avec les mêmes champs, la garde de l'index retient une baisse, ou une

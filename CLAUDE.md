@@ -76,7 +76,8 @@ test/                             node --test, against the SDK's fake Gladys, a 
   the first read waits a whole interval). Never add a read path that skips
   `dueAt()`. **One clock read per decision**: `dueAt(mono)` with the
   caller's `mono` (a real clock moves between two calls); the test clock
-  moves at every call, and `test/realclock.test.js` runs real timers.
+  moves at every call, and `test/realclock.test.js` runs real timers (sped
+  up 20 times, instants taken at the fetch call).
 - **Late answers**: every await in a read is followed by `gone()`; an old
   session never publishes nor sets a status.
 - **Identity**: the values of an answer go to the device of the serial of

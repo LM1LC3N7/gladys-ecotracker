@@ -101,11 +101,16 @@ function ageOf(raw) {
   return value !== undefined && value >= 0 && value <= 1e12 ? value : undefined;
 }
 
-/** The fields whose presence makes the "shape" of an answer (a reader without serial). */
+/**
+ * The fields whose presence makes the "shape" of an answer (a reader without
+ * serial): the values of the METER only. `agePower`, `rssi`,
+ * `firmwareVersion` and `serial` describe the reader (two readers on one
+ * firmware share them) and a firmware update may add them: never part of the
+ * shape (review r2, point 1).
+ */
 const SHAPE_FIELDS = [
   'power',
   'powerAvg',
-  'agePower',
   'powerPhase1',
   'powerPhase2',
   'powerPhase3',
@@ -113,13 +118,19 @@ const SHAPE_FIELDS = [
   'energyCounterInT1',
   'energyCounterInT2',
   'energyCounterOut',
-  'serial',
-  'firmwareVersion',
-  'rssi',
 ];
 
-/** A shape we accept from /data: known field names joined by commas. */
-export const SHAPE = new RegExp(`^(?:(?:${SHAPE_FIELDS.join('|')})(?:,|$))*$`);
+/** A shape we accept from /data: field names joined by commas (older ones had reader fields). */
+export const SHAPE = new RegExp(
+  `^(?:(?:${[...SHAPE_FIELDS, 'agePower', 'serial', 'firmwareVersion', 'rssi'].join('|')})(?:,|$))*$`,
+);
+
+/** A shape kept in /data, without the fields of the reader (no migration needed). */
+export const meterShape = (text) =>
+  text
+    .split(',')
+    .filter((field) => SHAPE_FIELDS.includes(field))
+    .join(',');
 
 /**
  * The answer, parsed:
