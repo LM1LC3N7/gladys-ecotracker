@@ -1,8 +1,8 @@
 {
-  "name": "gladys-integration-template-js",
-  "version": "1.0.0",
+  "name": "gladys-ecotracker",
+  "version": "0.1.0",
   "private": true,
-  "description": "Official starter template to build an external integration for Gladys Assistant with the JavaScript SDK.",
+  "description": "EcoTracker (everHome) for Gladys Assistant: the electricity meter read through the local API of its optical reader, power and a guarded consumption index for the energy monitoring, tariffs, injection and phases as sensors. Read-only.",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -10,10 +10,16 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test"
+    "test": "node --test",
+    "audit": "npm audit --omit=dev",
+    "cover": "node scripts/cover.mjs cover.png"
   },
   "engines": {
     "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LM1LC3N7/gladys-ecotracker.git"
   },
   "dependencies": {
     "@gladysassistant/integration-sdk": "^0.15.0"

@@ -1,45 +1,64 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// The configuration the user fills (manifest `config_schema`), normalized: the
+// address of the reader only (its local API needs no password). The address
+// parser comes from gladys-zeversolar / gladys-p1-monitor (approved).
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
-export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
-};
+const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 
 /**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
+ * An address typed by the user: an IP address or a host name, with an
+ * optional port. A pasted URL ("http://192.168.1.30/v1/json") is reduced to
+ * its host and port.
+ * @returns {{ address: string } | { error: 'invalid' }} `address` is '' when empty.
  */
+export function parseAddress(raw) {
+  let text = String(raw ?? '').trim();
+  if (text === '') {
+    return { address: '' };
+  }
+  text = text.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/[/?#].*$/, '');
+  // user:password@ never belongs in the address: refused rather than sent around.
+  if (text.includes('@')) {
+    return { error: 'invalid' };
+  }
+  const bracketed = /^\[([0-9a-f:.]+)\](?::(\d{1,5}))?$/i.exec(text);
+  if (bracketed) {
+    return withPort(`[${bracketed[1].toLowerCase()}]`, bracketed[2]);
+  }
+  if (/^[0-9a-f:.]+$/i.test(text) && (text.match(/:/g) ?? []).length >= 2) {
+    return { address: `[${text.toLowerCase()}]` };
+  }
+  const match = /^(.*?)(?::(\d{1,5}))?$/.exec(text);
+  const host = match[1];
+  if (host.length > 253 || !host.split('.').every((label) => LABEL.test(label))) {
+    return { error: 'invalid' };
+  }
+  return withPort(host.toLowerCase(), match[2]);
+}
+
+function withPort(host, port) {
+  if (port === undefined) {
+    return { address: host };
+  }
+  const number = Number(port);
+  if (number < 1 || number > 65535) {
+    return { error: 'invalid' };
+  }
+  return { address: number === 80 ? host : `${host}:${number}` };
+}
+
 export function normalizeConfig(raw = {}) {
+  // An address longer than any host name is refused before any parsing.
+  const value = typeof raw?.address === 'string' && raw.address.length <= 300 ? raw.address : '';
+  const parsed = parseAddress(value);
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    address: parsed.error ? '' : parsed.address,
+    invalidAddress:
+      Boolean(parsed.error) ||
+      (typeof raw?.address === 'string' && value === '' && raw.address !== ''),
   };
 }
+
+/** Whether the form is complete enough to read the reader. */
+export const isComplete = (config) => Boolean(config.address);
