@@ -1,6 +1,6 @@
 {
   "name": "gladys-ecotracker",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "EcoTracker (everHome) for Gladys Assistant: the electricity meter read through the local API of its optical reader, power and a guarded consumption index for the energy monitoring, tariffs, injection and phases as sensors. Read-only.",
   "type": "module",
