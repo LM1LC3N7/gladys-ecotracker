@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ACTIONS } from '../src/constants.js';
 import { ORDER, buildDevice } from '../src/devices.js';
+import { assertCoreDevice } from './helpers/coreFeature.js';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const manifest = JSON.parse(read('gladys-assistant-integration.json'));
@@ -162,4 +163,19 @@ test('the code never feeds the energy consumption endpoint nor scene events', ()
     assert.doesNotMatch(read(file), /publishEnergyConsumption\(/, file);
     assert.doesNotMatch(read(file), /publishSceneEvent\(/, file);
   }
+});
+
+test('every feature has a numeric min and max and the other core fields; not polled', () => {
+  const external = {
+    device: 'ext:ecotracker:ecotracker:sn-X1',
+    feature: (key) => `ext:ecotracker:ecotracker:sn-X1:${key}`,
+  };
+  const gladys = { externalIds: () => external };
+  let features = 0;
+  for (const keys of [new Set(ORDER), new Set([ORDER[0]]), new Set()]) {
+    const device = buildDevice(gladys, 'sn-X1', 'X1', keys, '1.2.3.4');
+    features += assertCoreDevice(device, `${keys.size} keys`);
+    assert.equal(device.should_poll, false, 'should_poll');
+  }
+  assert.equal(features, ORDER.length + 1);
 });

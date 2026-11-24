@@ -146,6 +146,13 @@
 - **No custom User-Agent**, no imitation: Node's own fetch, one GET.
 - **Gladys version**: `>=5.2.0`, like the other energy integrations.
 
+## Next patch
+
+- [ ] The index guard (`src/guard.js`, `accept(total, this.now())`) measures
+      its margin on the wall clock: a clock jump (NTP, a VM restored) widens
+      or shrinks it. Port it to a session clock as gladys-p1-monitor d4cff87
+      and gladys-openems did (noted at the SDK 0.16 migration, not ported).
+
 ## Ideas
 
 - Several readers in one integration (a list of addresses).

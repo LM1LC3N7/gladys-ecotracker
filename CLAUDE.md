@@ -8,8 +8,8 @@ contributors.
 A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
 no build step) that runs in its own sandboxed Docker container and talks to
 Gladys through
-[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
-its only runtime dependency. It started from the official JavaScript template.
+[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js)
+(v0.16), its only runtime dependency. It started from the official JavaScript template.
 
 It reads an **EcoTracker** (everHome, the optical reader of an electricity
 meter) through its local API (`GET http://<address>/v1/json`, one JSON
@@ -24,7 +24,7 @@ structure), `gladys-p1-monitor` (the guard), `gladys-iskra` /
 
 ```bash
 npm install
-npm test                                  # node --test, the built-in runner
+npm test                                  # node --test --test-timeout=60000
 node --test test/app.test.js              # one file
 npm run audit                             # npm audit --omit=dev
 npm run lint                              # ESLint
@@ -60,6 +60,12 @@ test/                             node --test, against the SDK's fake Gladys, a 
 
 ## Rules
 
+- **Features follow the core model.** Every feature has a non-empty `name`, a
+  numeric `min` and `max` (0/0 for text), boolean `read_only` and
+  `has_feedback`: Gladys refuses it otherwise, and the SDK's fake Gladys
+  (0.16.1) too; `test/helpers/coreFeature.js` checks the device with every
+  feature set. The device carries `should_poll: false` (Gladys 5.3 polls a
+  device with `poll_frequency` unless it says so).
 - **Energy monitoring**: `consumption_index` (`energy-sensor` / `index`,
   `energyCounterIn` in kWh) is the only index; it passes `IndexGuard`
   (`src/guard.js`, 50 kW, 0.5 kWh): never 0, a drop and a jump never

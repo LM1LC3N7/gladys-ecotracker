@@ -143,6 +143,7 @@ export function buildDevice(gladys, key, serial, keys, address) {
       { name: 'address', value: address },
       ...(serial === undefined ? [] : [{ name: 'serial', value: serial }]),
     ],
+    should_poll: false,
   };
 }
 
