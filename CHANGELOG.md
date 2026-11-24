@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-24
+
 ### Changed
 
 - Integration SDK 0.16.1 (no change for the device). The device now says
@@ -51,6 +53,7 @@ the notes of the version's GitHub Release.
 - Test button that never reads faster than the 10-second pace; pace and
   429/5xx pauses kept across restarts, pauses on a monotonic clock.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-ecotracker/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-ecotracker/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/LM1LC3N7/gladys-ecotracker/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/LM1LC3N7/gladys-ecotracker/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-ecotracker/releases/tag/v0.1.1
