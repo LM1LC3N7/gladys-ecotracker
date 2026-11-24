@@ -157,3 +157,7 @@
 
 - Several readers in one integration (a list of addresses).
 - The everHome cloud API (not needed: the local API gives the same values).
+
+## Next patch
+
+- Migration review minors: see `_lots/migration-reviews/w14-gladys-ecotracker-r1.md`.
